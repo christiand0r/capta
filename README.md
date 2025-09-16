@@ -73,16 +73,27 @@ npm install -g aws-cdk
 ### 🌐 Despliegue en la nube
 
 ```bash
-# Build del proyecto de Hono
+# 1. Configura tus credenciales de AWS (solo la primera vez)
+aws configure
+# 👉 Ingresa:
+# AWS Access Key ID: tu_access_key_id
+# AWS Secret Access Key: tu_secret_access_key
+# Default region name: us-east-1
+# Default output format: json
+
+# 2. Prepara la cuenta con CDK (solo la primera vez por cuenta/region)
+cdk bootstrap
+
+# 3. Build del proyecto de Hono
 bun run lambda:build 
 
-# Ingresa al subproyecto
+# 4. Ingresa al subproyecto de infraestructura
 cd aws
 
-# Instala las dependencias de infraestructura
+# 5. Instala dependencias de infraestructura
 npm install
 
-# Despliega con CDK
+# 6. Despliega con CDK 🚀
 cdk deploy
 ```
 

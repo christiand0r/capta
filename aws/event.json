@@ -1,0 +1,18 @@
+{
+  "version": "2.0",
+  "routeKey": "GET /workdays",
+  "rawPath": "/workdays",
+  "rawQueryString": "hours=4",
+  "headers": {
+    "accept": "application/json",
+    "host": "localhost",
+    "user-agent": "curl/7.64.1"
+  },
+  "requestContext": {
+    "http": {
+      "method": "GET",
+      "path": "/workdays"
+    }
+  },
+  "isBase64Encoded": false
+}

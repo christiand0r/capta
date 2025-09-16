@@ -5,7 +5,7 @@ import { filePrint } from '@/lib/utils/logger';
 
 export const app = new Hono()
 
-// app.use('*', logger(filePrint))
+app.use('*', logger(filePrint))
 
 app.get("/", (c) => c.text("Hola Capta"));
 

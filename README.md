@@ -73,6 +73,9 @@ npm install -g aws-cdk
 ### 🌐 Despliegue en la nube
 
 ```bash
+# Build del proyecto de Hono
+bun run lambda:build 
+
 # Ingresa al subproyecto
 cd aws
 

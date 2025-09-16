@@ -75,11 +75,6 @@ npm install -g aws-cdk
 ```bash
 # 1. Configura tus credenciales de AWS (solo la primera vez)
 aws configure
-# 👉 Ingresa:
-# AWS Access Key ID: tu_access_key_id
-# AWS Secret Access Key: tu_secret_access_key
-# Default region name: us-east-1
-# Default output format: json
 
 # 2. Prepara la cuenta con CDK (solo la primera vez por cuenta/region)
 cdk bootstrap

@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { format } from "@formkit/tempo";
+import { format, tzDate } from "@formkit/tempo";
 import { validate } from "@/middlewares/schema";
 import { withHolidays } from "@/middlewares/holidays";
 import { withBusinessConfig, type BusinessConfig } from "@/middlewares/business";
@@ -57,20 +57,14 @@ workdays.get(
 
       const holidayProvider = c.get("holidays");
 
-      const now = new Date()
+      const now = new Date();
 
       /**
        * `input` es la fecha base para el cálculo.
        * - Si el usuario envía `payload.date`, se usa esa fecha (en UTC con sufijo Z).
        * - Si no envía nada, se toma la fecha y hora actuales en la zona horaria de Bogotá.
        */
-      let input = date
-        ? date
-        : format({
-            date: new Date(),
-            format: "YYYY-MM-DD HH:mm:ss Z",
-            tz: rules.defaultTz,
-          });
+      let input = date ? date : tzDate(new Date(), rules.defaultTz).toISOString();
 
       const holidays = await holidayProvider.getHolidays([now.getFullYear()]);
 

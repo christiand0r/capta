@@ -46,7 +46,5 @@ export const getHoursUntilBreakOrEnd = (date: Date, rules: BusinessConfig): numb
     return Math.ceil(minutesUntilEnd / 60);
   }
 
-  console.log("ESTAMOS EN EL LIMITE");
-
   return 0; // Límite exacto o fuera de horario
 };

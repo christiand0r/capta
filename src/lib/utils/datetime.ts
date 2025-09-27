@@ -63,11 +63,11 @@ export const setLocalHM = (
  * 3. Si es fin de semana o feriado: busca el día laboral anterior conservando hora/minuto
  */
 export const backwardToJourney = (
-  date: Date,
+  iso: string,
   holidays: Set<string>,
   rules: BusinessConfig
 ): Date => {
-  let stamp = new Date(date);
+  let stamp = new Date(iso);
 
   const { startHour, startBreak, finalBreak, finalHour } = getTimeRulesInMinutes(rules);
 

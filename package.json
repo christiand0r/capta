@@ -4,10 +4,7 @@
   "scripts": {
     "dev": "tsx watch ./src/server.ts",
     "test": "vitest",
-    "lambda:build": "esbuild ./src/lambda.ts --bundle --platform=node --target=node20 --format=esm --outfile=./dist/index.mjs",
-    "lambda:zip": "zip -j lambda.zip dist/index.mjs",
-    "lambda:update": "aws lambda update-function-code --zip-file fileb://lambda.zip --function-name cspta-aws",
-    "lambda:deploy": "run-s build zip update"
+    "build": "esbuild ./src/lambda.ts --bundle --platform=node --target=node20 --format=esm --outfile=./dist/index.mjs"
   },
   "devDependencies": {
     "@types/node": "^24.5.0",

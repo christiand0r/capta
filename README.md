@@ -80,7 +80,7 @@ aws configure
 cdk bootstrap
 
 # 3. Build del proyecto de Hono
-bun run lambda:build 
+bun run build 
 
 # 4. Ingresa al subproyecto de infraestructura
 cd aws

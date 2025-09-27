@@ -1,16 +1,19 @@
 import { addDay, addHour, format, tzDate } from "@formkit/tempo";
 import type { BusinessConfig } from "@/middlewares/business";
+import { getHoursUntilBreakOrEnd, getJourney, getTimeRulesInMinutes } from "./getters";
 
 export const isHoliday = (date: Date, holidays: Set<string>, tz: string): boolean => {
   const formattedDate = format({ date, format: "YYYY-MM-DD", tz });
-
   return holidays.has(formattedDate);
 };
 
 export const isWeekend = (date: Date, tz: string): boolean => {
   const day = format({ date, format: "dddd", tz, locale: "en" });
-
   return day === "Sunday" || day === "Saturday";
+};
+
+export const isWorkingDay = (date: Date, holidays: Set<string>, tz: string): boolean => {
+  return !isWeekend(date, tz) && !isHoliday(date, holidays, tz);
 };
 
 export const isJourney = (
@@ -18,24 +21,19 @@ export const isJourney = (
   holidays: Set<string>,
   rules: BusinessConfig
 ): boolean => {
-  if (isWeekend(date, rules.defaultTz) || isHoliday(date, holidays, rules.defaultTz)) {
-    return false;
-  }
+  if (!isWorkingDay(date, holidays, rules.defaultTz)) return false;
 
   const hh = Number(format({ date, format: "H", tz: rules.defaultTz }));
   const mm = Number(format({ date, format: "m", tz: rules.defaultTz }));
   const minutes = hh * 60 + mm;
 
-  const startHour = rules.startHour * 60;
-  const startBreak = rules.startBreak * 60;
-  const finalBreak = rules.finalBreak * 60;
-  const finalHour = rules.finalHour * 60;
+  const { startHour, startBreak, finalBreak, finalHour } = getTimeRulesInMinutes(rules);
 
-  // Se incluye las 8:00am y se excluye 12:00pm
-  const inStart = minutes >= startHour && minutes < startBreak;
+  // Horario matutino: incluye inicio, incluye break
+  const inStart = minutes >= startHour && minutes <= startBreak;
 
-  // Se incluye las 1:00pm y 17:00pm
-  const inFinal = minutes >= finalBreak && minutes < finalHour;
+  // Horario vespertino: incluye reanudación, incluye final
+  const inFinal = minutes >= finalBreak && minutes <= finalHour;
 
   return inStart || inFinal;
 };
@@ -50,7 +48,155 @@ export const setLocalHM = (
   const mm = String(minute).padStart(2, "0");
   const ymd = format({ date, format: "YYYY-MM-DD", tz });
 
-  return tzDate(`${ymd} ${hh}:${mm}`, tz);
+  return tzDate(`${ymd} ${hh}:${mm}:00`, tz);
+};
+
+/**
+ * Aproxima una fecha hacia ATRÁS al momento laboral más cercano
+ *
+ * Casos de aproximación:
+ * 1. Si ya está en horario laboral: no hace nada
+ * 2. Si es día laboral pero fuera de horario:
+ *    - Antes de startHour -> va al día anterior conservando la misma hora/minuto
+ *    - Entre startBreak y finalBreak ->  va a la misma hora/minuto pero antes de startBreak
+ *    - Después de finalHour -> va a la misma hora/minuto pero antes de finalHour
+ * 3. Si es fin de semana o feriado: busca el día laboral anterior conservando hora/minuto
+ */
+export const backwardToJourney = (
+  date: Date,
+  holidays: Set<string>,
+  rules: BusinessConfig
+): Date => {
+  let stamp = new Date(date);
+
+  const { startHour, startBreak, finalBreak, finalHour } = getTimeRulesInMinutes(rules);
+
+  const originalH = Number(format({ date: stamp, format: "H", tz: rules.defaultTz }));
+  const originalM = Number(format({ date: stamp, format: "m", tz: rules.defaultTz }));
+  const currentMinutes = originalH * 60 + originalM;
+
+  // Si ya está en horario laboral válido
+  if (isJourney(stamp, holidays, rules)) {
+    return setLocalHM(stamp, originalH, originalM, rules.defaultTz);
+  }
+
+  // Si es un día laboral, pero fuera de horario
+  if (isWorkingDay(stamp, holidays, rules.defaultTz)) {
+    // Antes de startHour -> ir al día anterior inicio de jornada
+    if (currentMinutes < startHour) {
+      stamp = addDay(stamp, -1);
+
+      // Buscar el día laboral anterior
+      while (!isWorkingDay(stamp, holidays, rules.defaultTz)) {
+        stamp = addDay(stamp, -1);
+      }
+
+      return setLocalHM(stamp, rules.startHour, 0, rules.defaultTz);
+    }
+
+    // Entre startBreak y finalBreak -> mapear a horario matutino
+    if (currentMinutes > startBreak && currentMinutes < finalBreak) {
+      return setLocalHM(stamp, originalH - 1, 0, rules.defaultTz);
+    }
+
+    // Después de finalHour -> mapear a horario vespertino
+    if (currentMinutes > finalHour) {
+      return setLocalHM(stamp, rules.startHour, 0, rules.defaultTz);
+    }
+  }
+
+  // Si es fin de semana o feriado, buscar el día laboral anterior
+  while (!isWorkingDay(stamp, holidays, rules.defaultTz)) {
+    stamp = addDay(stamp, -1);
+  }
+
+  // Si la hora original está en rango laboral, usarla
+  if (
+    (currentMinutes >= startHour && currentMinutes <= startBreak) ||
+    (currentMinutes >= finalBreak && currentMinutes <= finalHour)
+  ) {
+    return setLocalHM(stamp, originalH, originalM, rules.defaultTz);
+  }
+
+  // En cualquier otro caso, aproximar al final del día laboral
+  return setLocalHM(stamp, rules.finalHour, 0, rules.defaultTz);
+};
+
+/**
+ * Aproxima una fecha hacia ADELANTE al momento laboral más cercano
+ *
+ * Casos de aproximación:
+ * 1. Si ya está en horario laboral: no hace nada
+ * 2. Si es día laboral pero fuera de horario:
+ *    - Antes de startHour -> va al mismo día en startHour
+ *    - Entre startBreak y finalBreak ->  va a la mismo día en finalBreak
+ *    - Después de finalHour -> va al siguiente día en startHour
+ * 3. Si es fin de semana o feriado: busca el día laboral siguiente en startHour
+ */
+export const forwardToJourney = (
+  date: Date,
+  holidays: Set<string>,
+  rules: BusinessConfig
+): Date => {
+  let stamp = new Date(date);
+
+  const { startHour, startBreak, finalBreak, finalHour } = getTimeRulesInMinutes(rules);
+
+  const originalH = Number(format({ date: stamp, format: "H", tz: rules.defaultTz }));
+  const originalM = Number(format({ date: stamp, format: "m", tz: rules.defaultTz }));
+  const currentMinutes = originalH * 60 + originalM;
+
+  // Si ya está en horario laboral válido
+  if (isJourney(stamp, holidays, rules)) {
+    if (currentMinutes === startBreak) {
+      return setLocalHM(stamp, rules.finalBreak, originalM, rules.defaultTz);
+    }
+
+    if (currentMinutes === finalHour) {
+      stamp = addDay(stamp, 1);
+
+      // Buscar siguiente día laboral
+      while (!isWorkingDay(stamp, holidays, rules.defaultTz)) {
+        stamp = addDay(stamp, 1);
+      }
+
+      return setLocalHM(stamp, rules.startHour, originalM, rules.defaultTz);
+    }
+
+    return setLocalHM(stamp, originalH, originalM, rules.defaultTz);
+  }
+
+  // Si es un día laboral pero fuera de horario
+  if (isWorkingDay(stamp, holidays, rules.defaultTz)) {
+    // Antes de startHour -> ir a startHour
+    if (currentMinutes < startHour) {
+      return setLocalHM(stamp, rules.startHour, originalM, rules.defaultTz);
+    }
+
+    // Entre startBreak y finalBreak -> ir a finalBreak
+    if (currentMinutes > startBreak && currentMinutes < finalBreak) {
+      return setLocalHM(stamp, rules.finalBreak, originalM, rules.defaultTz);
+    }
+
+    // Después de finalHour -> ir al siguiente día laboral a startHour
+    if (currentMinutes > finalHour) {
+      stamp = addDay(stamp, 1);
+
+      // Buscar siguiente día laboral
+      while (!isWorkingDay(stamp, holidays, rules.defaultTz)) {
+        stamp = addDay(stamp, 1);
+      }
+
+      return setLocalHM(stamp, rules.startHour, originalM, rules.defaultTz);
+    }
+  }
+
+  while (!isWorkingDay(stamp, holidays, rules.defaultTz)) {
+    stamp = addDay(stamp, 1);
+  }
+
+  // Establecer al inicio de la jornada laboral
+  return setLocalHM(stamp, rules.startHour, 0, rules.defaultTz);
 };
 
 /** Suma n días hábiles (sin sábado/domingo/feriados). */
@@ -60,21 +206,33 @@ export const addBusinessDays = (
   holidays: Set<string>,
   rules: BusinessConfig
 ): Date => {
-  let stamp = new Date(date);
-  let remaining = days;
+  let currentDate = new Date(date);
+  let remainingDays = days;
 
-  const step = 1;
+  // Para cantidades grandes, saltar semanas completas
+  if (days >= 5) {
+    const fullWeeks = Math.floor(days / 5);
 
-  while (remaining > 0) {
-    stamp = addDay(stamp, step);
+    currentDate = addDay(currentDate, fullWeeks * 7);
 
-    if (isWeekend(stamp, rules.defaultTz) || isHoliday(stamp, holidays, rules.defaultTz))
-      continue;
-
-    remaining -= step;
+    remainingDays = days % 5;
   }
 
-  return stamp;
+  // Completar días restantes día por día
+  while (remainingDays > 0) {
+    currentDate = addDay(currentDate, 1);
+
+    if (isWorkingDay(currentDate, holidays, rules.defaultTz)) {
+      remainingDays--;
+    }
+  }
+
+  // Asegurar que terminamos en día laboral
+  while (!isWorkingDay(currentDate, holidays, rules.defaultTz)) {
+    currentDate = addDay(currentDate, 1);
+  }
+
+  return currentDate;
 };
 
 /** Suma horas hábiles respetando jornada, almuerzo y aproximación inicial hacia atrás. */
@@ -84,60 +242,43 @@ export const addBusinessHours = (
   holidays: Set<string>,
   rules: BusinessConfig
 ): Date => {
-  let stamp = new Date(date);
-  let remaining = Math.abs(hours);
+  let currentDate = new Date(date);
+  let remainingHours = hours;
 
-  const step = 1;
-  const journeyTime =
-    rules.startBreak - rules.startHour + (rules.finalHour - rules.finalBreak);
+  const totalJourney = getJourney(rules);
 
-  // Ajustar la fecha inicial al día y hora laboral más cercanos.
-  while (!isJourney(stamp, holidays, rules)) {
-    if (
-      isWeekend(stamp, rules.defaultTz) ||
-      isHoliday(stamp, holidays, rules.defaultTz)
-    ) {
-      stamp = addDay(stamp, -1);
+  // Para cantidades grandes, convertir a días completos
+  if (hours > totalJourney) {
+    const fullDays = Math.floor(hours / totalJourney);
 
+    remainingHours = hours % totalJourney;
+
+    if (fullDays > 0) {
+      currentDate = addBusinessDays(currentDate, fullDays, holidays, rules);
+      currentDate = forwardToJourney(currentDate, holidays, rules);
+    }
+  }
+
+  // Agregar las horas restantes
+  while (remainingHours > 0) {
+    // Calcular cuántas horas podemos agregar en el período actual
+    const hoursUntilBreakOrEnd = getHoursUntilBreakOrEnd(currentDate, rules);
+
+    const hoursToAddNow = Math.min(remainingHours, hoursUntilBreakOrEnd);
+
+    // Si no hay horas disponibles en el período actual, saltar al siguiente
+    if (hoursUntilBreakOrEnd === 0) {
+      currentDate = forwardToJourney(currentDate, holidays, rules);
       continue;
     }
 
-    // Si la fecha es un día hábil pero la hora no lo es (fuera de jornada o almuerzo)
-    stamp = addHour(stamp, -1);
-  }
+    currentDate = addHour(currentDate, hoursToAddNow);
+    remainingHours -= hoursToAddNow;
 
-  // Sumar bloques de días laborales completos
-  if (remaining >= journeyTime) {
-    const fullDays = Math.floor(remaining / journeyTime);
-
-    remaining -= fullDays * journeyTime;
-
-    stamp = addBusinessDays(stamp, fullDays, holidays, rules);
-  }
-
-  while (remaining > 0) {
-    if (
-      isWeekend(stamp, rules.defaultTz) ||
-      isHoliday(stamp, holidays, rules.defaultTz)
-    ) {
-      stamp = addDay(stamp, 1);
-
-      continue;
+    if (!isJourney(currentDate, holidays, rules)) {
+      currentDate = forwardToJourney(currentDate, holidays, rules);
     }
-
-    // Si la nueva hora es laboral, se descuenta del saldo
-    if (isJourney(stamp, holidays, rules)) {
-      remaining -= 1;
-    }
-
-    stamp = addHour(stamp, step);
   }
 
-  // Conserva hora y minuto locales
-  const hh = Number(format({ date: stamp, format: "H", tz: rules.defaultTz }));
-  const mm = Number(format({ date: stamp, format: "m", tz: rules.defaultTz }));
-
-  stamp = setLocalHM(stamp, hh, mm, rules.defaultTz);
-
-  return stamp;
+  return currentDate;
 };

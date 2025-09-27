@@ -52,7 +52,7 @@ cp .env.example .env
 bun run dev
 ```
 
-La API estará disponible en `http://localhost:3000` o en el puerto especificado.
+La API estará disponible en `http://localhost:3000` o en el puerto especificado, el pathname de la ruta es **"workdays"**.
 
 ---
 
